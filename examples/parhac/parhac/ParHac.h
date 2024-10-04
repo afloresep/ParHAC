@@ -21,6 +21,13 @@ size_t ProcessGraphUnweightedAverage(
     Graph& G, ClusteredGraph& CG, double lower_threshold, double max_weight,
     Active& active, Colors& colors, MergeTarget& merge_target,
     parlay::random& rnd, size_t& num_inner_rounds, size_t m, double eps = 0.1) {
+  
+  std::cout << "Entering ProcessGraphUnweightedAverage" << std::endl;
+  std::cout << "  lower_threshold = " << lower_threshold << std::endl;
+  std::cout << "  max_weight = " << max_weight << std::endl;
+  std::cout << "  num clusters = " << CG.clusters.size() << std::endl;
+
+
   // Identify vertices with edges between [lower_threshold, max_weight)
   size_t n = CG.clusters.size();
 
@@ -247,6 +254,13 @@ inline auto ParHac(Graph& G, double epsilon = 0.1, bool get_size = false) {
   parlay::random rnd;
 
   auto CG = clustered_graph<Graph>(G);
+  std::cout << "Initialized CG with " << CG.clusters.size() << " clusters" << std::endl;
+
+  // Print the first few clusters for verification
+  for (size_t i = 0; i < std::min(size_t(10), CG.clusters.size()); i++) {
+      std::cout << "Cluster " << i << ": size = " << CG.clusters[i].cluster_size() 
+                << ", active = " << CG.clusters[i].is_active() << std::endl;
+  }
 
   if (get_size) {
     auto[used, unused] = parlay::internal::get_default_allocator().stats();
@@ -284,14 +298,21 @@ inline auto ParHac(Graph& G, double epsilon = 0.1, bool get_size = false) {
   auto GetBestEdgeWeight = [&](size_t i) {
     auto vtx = GetVertex(i);
     double our_size = CG.clusters[i].cluster_size();
+    std::cout << "GetBestEdgeWeight for vertex " << i << ", size = " << our_size << std::endl;
     auto map_f = [&](const auto& u, const auto& v, const auto& wgh) {
       double ngh_size = CG.clusters[v].cluster_size();
-      return std::make_pair(wgh / (our_size * ngh_size), v);
+      double edge_weight = (our_size * ngh_size == 0) ? 0 : wgh / (our_size * ngh_size);
+      std::cout << "  Edge to " << v << ", weight = " << wgh 
+                << ", ngh_size = " << ngh_size 
+                << ", calculated weight = " << edge_weight << std::endl;
+      return std::make_pair(edge_weight, v);
     };
     auto reduce_f = MaxM<double, size_t>();
-    return vtx.out_neighbors().map_reduce(map_f, reduce_f);
+    auto result = vtx.out_neighbors().map_reduce(map_f, reduce_f);
+    std::cout << "  Best edge: weight = " << result.first << ", to vertex = " << result.second << std::endl;
+    return result;
   };
-
+  
   auto GetTotalEdges = [&]() {
     auto degrees = parlay::delayed_seq<size_t>(
         n, [&](size_t i) { return GetVertex(i).out_degree(); });
